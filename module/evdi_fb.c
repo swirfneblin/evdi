@@ -319,8 +319,11 @@ static void evdi_user_framebuffer_destroy(struct drm_framebuffer *fb)
 
 	EVDI_CHECKPT();
 	if (efb->obj)
+#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
+		drm_gem_object_put(&efb->obj->base);
+#else
 		drm_gem_object_put_unlocked(&efb->obj->base);
-
+#endif
 	drm_framebuffer_cleanup(fb);
 	kfree(efb);
 }
@@ -410,7 +413,7 @@ static int evdifb_create(struct drm_fb_helper *helper,
 	info->fix.smem_len = size;
 	info->fix.smem_start = (unsigned long)efbdev->efb.obj->vmapping;
 
-#if KERNEL_VERSION(4, 20, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(4, 20, 0) <= LINUX_VERSION_CODE || defined(EL8)
 	info->flags = FBINFO_DEFAULT;
 #else
 	info->flags = FBINFO_DEFAULT | FBINFO_CAN_FORCE_OUTPUT;
@@ -419,7 +422,7 @@ static int evdifb_create(struct drm_fb_helper *helper,
 	efbdev->fb_ops = evdifb_ops;
 	info->fbops = &efbdev->fb_ops;
 
-#if KERNEL_VERSION(5, 2, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(5, 2, 0) <= LINUX_VERSION_CODE || defined(EL8)
 	drm_fb_helper_fill_info(info, &efbdev->helper, sizes);
 #else
 	drm_fb_helper_fill_fix(info, fb->pitches[0], fb->format->depth);
@@ -438,7 +441,11 @@ static int evdifb_create(struct drm_fb_helper *helper,
 
 	return ret;
  out_gfree:
+#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
+	drm_gem_object_put(&efbdev->efb.obj->base);
+#else
 	drm_gem_object_put_unlocked(&efbdev->efb.obj->base);
+#endif
  out:
 	return ret;
 }
@@ -464,7 +471,11 @@ static void evdi_fbdev_destroy(__always_unused struct drm_device *dev,
 	if (efbdev->efb.obj) {
 		drm_framebuffer_unregister_private(&efbdev->efb.base);
 		drm_framebuffer_cleanup(&efbdev->efb.base);
+#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
+		drm_gem_object_put(&efbdev->efb.obj->base);
+#else
 		drm_gem_object_put_unlocked(&efbdev->efb.obj->base);
+#endif
 	}
 }
 

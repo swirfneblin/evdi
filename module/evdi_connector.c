@@ -18,7 +18,7 @@
 #include <drm/drm_atomic_helper.h>
 #include "evdi_drv.h"
 
-#if KERNEL_VERSION(5, 1, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(5, 1, 0) <= LINUX_VERSION_CODE || defined(EL8)
 #include <drm/drm_probe_helper.h>
 #endif
 
@@ -36,7 +36,7 @@ static int evdi_get_modes(struct drm_connector *connector)
 	edid = (struct edid *)evdi_painter_get_edid_copy(evdi);
 
 	if (!edid) {
-#if KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE || defined(EL8)
 		drm_connector_update_edid_property(connector, NULL);
 #else
 		drm_mode_connector_update_edid_property(connector, NULL);
@@ -44,7 +44,7 @@ static int evdi_get_modes(struct drm_connector *connector)
 		return 0;
 	}
 
-#if KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE || defined(EL8)
 	ret = drm_connector_update_edid_property(connector, edid);
 #else
 	ret = drm_mode_connector_update_edid_property(connector, edid);
@@ -138,6 +138,7 @@ static const struct drm_connector_funcs evdi_connector_funcs = {
 int evdi_connector_init(struct drm_device *dev, struct drm_encoder *encoder)
 {
 	struct drm_connector *connector;
+	struct evdi_device *evdi = dev->dev_private;
 
 	connector = kzalloc(sizeof(struct drm_connector), GFP_KERNEL);
 	if (!connector)
@@ -151,7 +152,9 @@ int evdi_connector_init(struct drm_device *dev, struct drm_encoder *encoder)
 
 	drm_connector_register(connector);
 
-#if KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE
+	evdi->conn = connector;
+
+#if KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE  || defined(EL8)
 	drm_connector_attach_encoder(connector, encoder);
 #else
 	drm_mode_connector_attach_encoder(connector, encoder);

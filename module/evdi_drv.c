@@ -16,6 +16,9 @@
 #include <drm/drm_crtc_helper.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
+#include <linux/iommu.h>
+#endif
 
 #include "evdi_drv.h"
 #include "evdi_drm.h"
@@ -42,6 +45,8 @@ struct drm_ioctl_desc evdi_painter_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(EVDI_REQUEST_UPDATE,
 			  evdi_painter_request_update_ioctl, DRM_UNLOCKED),
 	DRM_IOCTL_DEF_DRV(EVDI_GRABPIX, evdi_painter_grabpix_ioctl,
+			  DRM_UNLOCKED),
+	DRM_IOCTL_DEF_DRV(EVDI_DDCCI_RESPONSE, evdi_painter_ddcci_response_ioctl,
 			  DRM_UNLOCKED),
 };
 
@@ -89,7 +94,11 @@ static struct drm_driver driver = {
 	.postclose = evdi_driver_postclose,
 
 	/* gem hooks */
+#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
+	.gem_free_object_unlocked = evdi_gem_free_object,
+#else
 	.gem_free_object = evdi_gem_free_object,
+#endif
 	.gem_vm_ops = &evdi_gem_vm_ops,
 
 	.dumb_create = evdi_dumb_create,
@@ -164,13 +173,23 @@ static int evdi_platform_probe(struct platform_device *pdev)
 {
 	struct drm_device *dev;
 	int ret;
-
+#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
+#if IS_ENABLED(CONFIG_IOMMU_API) && defined(CONFIG_INTEL_IOMMU)
+	struct dev_iommu iommu;
+#endif
+#endif
 	EVDI_CHECKPT();
 
-	/* Intel-IOMMU workaround: platform-bus unsupported, force ID-mapping */
+/* Intel-IOMMU workaround: platform-bus unsupported, force ID-mapping */
 #if IS_ENABLED(CONFIG_IOMMU_API) && defined(CONFIG_INTEL_IOMMU)
+#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
+	memset(&iommu, 0, sizeof(iommu));
+	iommu.priv = (void *)-1;
+	pdev->dev.iommu = &iommu;
+#else
 #define INTEL_IOMMU_DUMMY_DOMAIN                ((void *)-1)
 	pdev->dev.archdata.iommu = INTEL_IOMMU_DUMMY_DOMAIN;
+#endif
 #endif
 
 	dev = drm_dev_alloc(&driver, &pdev->dev);
