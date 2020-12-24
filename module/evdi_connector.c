@@ -16,7 +16,7 @@
 #include <drm/drm_edid.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_atomic_helper.h>
-#include "evdi_drv.h"
+#include "evdi_drm_drv.h"
 
 #if KERNEL_VERSION(5, 1, 0) <= LINUX_VERSION_CODE || defined(EL8)
 #include <drm/drm_probe_helper.h>
@@ -86,7 +86,7 @@ evdi_detect(struct drm_connector *connector, __always_unused bool force)
 	struct evdi_device *evdi = connector->dev->dev_private;
 
 	EVDI_CHECKPT();
-	if (evdi_painter_is_connected(evdi)) {
+	if (evdi_painter_is_connected(evdi->painter)) {
 		EVDI_DEBUG("(dev=%d) poll connector state: connected\n",
 			   evdi->dev_index);
 		return connector_status_connected;
@@ -105,7 +105,7 @@ static void evdi_connector_destroy(struct drm_connector *connector)
 
 static struct drm_encoder *evdi_best_encoder(struct drm_connector *connector)
 {
-#if KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE || defined(EL8)
 	struct drm_encoder *encoder;
 
 	drm_connector_for_each_possible_encoder(connector, encoder) {

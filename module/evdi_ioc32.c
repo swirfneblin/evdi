@@ -22,14 +22,14 @@
 #include <linux/compat.h>
 
 #include <linux/version.h>
-#if KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE || defined(EL8)
 #else
 #include <drm/drmP.h>
 #endif
 #include <drm/drm_edid.h>
 #include "evdi_drm.h"
 
-#include "evdi_drv.h"
+#include "evdi_drm_drv.h"
 
 struct drm_evdi_connect32 {
 	int32_t connected;

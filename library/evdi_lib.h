@@ -12,7 +12,7 @@ extern "C" {
 #endif
 
 #define LIBEVDI_VERSION_MAJOR 1
-#define LIBEVDI_VERSION_MINOR 8
+#define LIBEVDI_VERSION_MINOR 9
 #define LIBEVDI_VERSION_PATCH 0
 
 struct evdi_lib_version {
@@ -102,6 +102,8 @@ struct evdi_logging {
 enum evdi_device_status evdi_check_device(int device);
 evdi_handle evdi_open(int device);
 int evdi_add_device(void);
+evdi_handle evdi_open_attached_to(const char *sysfs_parent_device);
+
 void evdi_close(evdi_handle handle);
 void evdi_connect(evdi_handle handle, const unsigned char *edid,
 		  const unsigned int edid_length,

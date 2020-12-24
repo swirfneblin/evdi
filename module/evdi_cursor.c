@@ -23,14 +23,14 @@
 #include <linux/mutex.h>
 #include <linux/version.h>
 
-#if KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE || defined(EL8)
 #else
 #include <drm/drmP.h>
 #endif
 #include <drm/drm_crtc_helper.h>
 
 #include "evdi_cursor.h"
-#include "evdi_drv.h"
+#include "evdi_drm_drv.h"
 
 /*
  * EVDI drm cursor private structure.

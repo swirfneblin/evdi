@@ -17,7 +17,7 @@
 #endif /* CONFIG_FB */
 #include <linux/dma-buf.h>
 #include <linux/version.h>
-#if KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE || defined(EL8)
 #else
 #include <drm/drmP.h>
 #endif
@@ -28,7 +28,7 @@
 #if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE
 #include <drm/drm_damage_helper.h>
 #endif
-#include "evdi_drv.h"
+#include "evdi_drm_drv.h"
 
 
 struct evdi_fbdev {
@@ -98,7 +98,7 @@ static int evdi_handle_damage(struct evdi_framebuffer *fb,
 
 	if (!fb->active)
 		return 0;
-	evdi_painter_set_scanout_buffer(evdi, fb);
+	evdi_painter_set_scanout_buffer(evdi->painter, fb);
 	evdi_painter_mark_dirty(evdi, &rect);
 
 	return 0;

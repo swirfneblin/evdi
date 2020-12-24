@@ -9,11 +9,11 @@
  */
 
 #include <linux/version.h>
-#if KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE || defined(EL8)
 #else
 #include <drm/drmP.h>
 #endif
-#include "evdi_drv.h"
+#include "evdi_drm_drv.h"
 #include <linux/shmem_fs.h>
 #include <linux/dma-buf.h>
 #include <drm/drm_cache.h>
@@ -51,7 +51,7 @@ struct evdi_gem_object *evdi_gem_alloc_object(struct drm_device *dev,
 		return NULL;
 	}
 
-#if KERNEL_VERSION(5, 4, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(5, 4, 0) <= LINUX_VERSION_CODE || defined(EL8)
 	dma_resv_init(&obj->_resv);
 #else
 	reservation_object_init(&obj->_resv);
@@ -90,10 +90,34 @@ evdi_gem_create(struct drm_file *file,
 	return 0;
 }
 
+static int evdi_align_pitch(int width, int cpp)
+{
+	int aligned = width;
+	int pitch_mask = 0;
+
+	switch (cpp) {
+	case 1:
+		pitch_mask = 255;
+		break;
+	case 2:
+		pitch_mask = 127;
+		break;
+	case 3:
+	case 4:
+		pitch_mask = 63;
+		break;
+	}
+
+	aligned += pitch_mask;
+	aligned &= ~pitch_mask;
+	return aligned * cpp;
+}
+
 int evdi_dumb_create(struct drm_file *file,
 		     struct drm_device *dev, struct drm_mode_create_dumb *args)
 {
-	args->pitch = args->width * DIV_ROUND_UP(args->bpp, 8);
+	args->pitch = evdi_align_pitch(args->width, DIV_ROUND_UP(args->bpp, 8));
+
 	args->size = args->pitch * args->height;
 	return evdi_gem_create(file, dev, args->size, &args->handle);
 }
@@ -233,7 +257,7 @@ void evdi_gem_free_object(struct drm_gem_object *gem_obj)
 
 	if (gem_obj->dev->vma_offset_manager)
 		drm_gem_free_mmap_offset(gem_obj);
-#if KERNEL_VERSION(5, 4, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(5, 4, 0) <= LINUX_VERSION_CODE || defined(EL8)
 	dma_resv_fini(&obj->_resv);
 #else
 	reservation_object_fini(&obj->_resv);
@@ -305,7 +329,10 @@ evdi_prime_import_sg_table(struct drm_device *dev,
 struct sg_table *evdi_prime_get_sg_table(struct drm_gem_object *obj)
 {
 	struct evdi_gem_object *bo = to_evdi_bo(obj);
-
-	return drm_prime_pages_to_sg(bo->pages, bo->base.size >> PAGE_SHIFT);
+	#if KERNEL_VERSION(5, 10, 0) <= LINUX_VERSION_CODE
+		return drm_prime_pages_to_sg(obj->dev, bo->pages, bo->base.size >> PAGE_SHIFT);
+	#else
+		return drm_prime_pages_to_sg(bo->pages, bo->base.size >> PAGE_SHIFT);
+	#endif
 }
 

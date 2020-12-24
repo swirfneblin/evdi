@@ -26,6 +26,7 @@
 // ********************* Private part **************************
 
 #define MAX_DIRTS           16
+#define EVDI_INVALID_DEVICE_INDEX -1
 
 #define EVDI_MODULE_COMPATIBILITY_VERSION_MAJOR 1
 #define EVDI_MODULE_COMPATIBILITY_VERSION_MINOR 8
@@ -57,6 +58,9 @@ struct evdi_device_context {
 	struct evdi_frame_buffer_node *frameBuffersListHead;
 	int device_index;
 };
+
+#define EVDI_USAGE_LEN 64
+static evdi_handle card_usage[EVDI_USAGE_LEN];
 
 static int drm_ioctl(int fd, unsigned long request, void *arg)
 {
@@ -426,6 +430,116 @@ static int open_device(int device)
 	return fd;
 }
 
+
+static int write_add_device(const char *buffer, size_t buffer_length)
+{
+	FILE *add_devices = fopen("/sys/devices/evdi/add", "w");
+	int written = 0;
+
+	if (add_devices != NULL) {
+		written = fwrite(buffer,
+				 1,
+				 buffer_length,
+				 add_devices);
+		fclose(add_devices);
+	}
+
+	return written;
+}
+
+static int get_drm_device_index(const char *evdi_sysfs_drm_dir)
+{
+	struct dirent *fd_entry;
+	DIR *fd_dir;
+	int dev_index = EVDI_INVALID_DEVICE_INDEX;
+
+	fd_dir = opendir(evdi_sysfs_drm_dir);
+	if (fd_dir == NULL) {
+		evdi_log("Failed to open dir %s", evdi_sysfs_drm_dir);
+		return dev_index;
+	}
+
+	while ((fd_entry = readdir(fd_dir)) != NULL) {
+		if (strncmp(fd_entry->d_name, "card", 4) == 0)
+			dev_index = strtol(&fd_entry->d_name[4], NULL, 10);
+	}
+	closedir(fd_dir);
+
+	return dev_index;
+}
+
+static int find_unused_card_for(const char *sysfs_parent_device_path)
+{
+	struct dirent *fd_entry;
+	DIR *fd_dir;
+	int device_index = EVDI_INVALID_DEVICE_INDEX;
+
+	fd_dir = opendir(sysfs_parent_device_path);
+	if (fd_dir == NULL) {
+		evdi_log("Failed to open dir %s", sysfs_parent_device_path);
+		return device_index;
+	}
+
+	while ((fd_entry = readdir(fd_dir)) != NULL) {
+		if (strncmp(fd_entry->d_name, "evdi", 4) != 0)
+			continue;
+
+		char evdi_drm_path[PATH_MAX];
+
+		snprintf(evdi_drm_path, PATH_MAX, "%s/%s/drm", sysfs_parent_device_path, fd_entry->d_name);
+		int dev_index = get_drm_device_index(evdi_drm_path);
+
+		assert(dev_index < EVDI_USAGE_LEN && dev_index >= 0);
+
+		if (card_usage[dev_index] == EVDI_INVALID_HANDLE) {
+			device_index = dev_index;
+			break;
+		}
+	}
+	closedir(fd_dir);
+
+	return device_index;
+}
+
+static int get_generic_device(void)
+{
+	char evdi_platform_root[] = "/sys/devices/platform";
+	int device_index = EVDI_INVALID_DEVICE_INDEX;
+
+	device_index = find_unused_card_for(evdi_platform_root);
+	if (device_index == EVDI_INVALID_DEVICE_INDEX) {
+		evdi_log("Creating card in %s", evdi_platform_root);
+		write_add_device("1", 1);
+		device_index = find_unused_card_for(evdi_platform_root);
+	}
+
+	return device_index;
+}
+
+static int get_device_attached_to_usb(const char *bus_ident)
+{
+	int device_index = EVDI_INVALID_DEVICE_INDEX;
+	char evdi_usb_parent_path[PATH_MAX] = "/sys/bus/usb/devices/";
+
+	strncat(evdi_usb_parent_path, bus_ident, PATH_MAX - strlen(evdi_usb_parent_path));
+
+	device_index = find_unused_card_for(evdi_usb_parent_path);
+	if (device_index == EVDI_INVALID_DEVICE_INDEX) {
+		evdi_log("Creating card for %s", bus_ident);
+		char usb_dev_path[PATH_MAX] = "usb:";
+		const size_t current_len = strlen(usb_dev_path);
+
+		strncat(usb_dev_path, bus_ident, PATH_MAX - current_len);
+		const size_t len = strlen(usb_dev_path);
+
+		write_add_device(usb_dev_path, len);
+		device_index = find_unused_card_for(evdi_usb_parent_path);
+	}
+
+	return device_index;
+}
+
+
 // ********************* Public part **************************
 
 evdi_handle evdi_open(int device)
@@ -440,6 +554,8 @@ evdi_handle evdi_open(int device)
 			if (h) {
 				h->fd = fd;
 				h->device_index = device;
+				card_usage[device] = h;
+				evdi_log("Using /dev/dri/card%d", device);
 			}
 		}
 		if (h == EVDI_INVALID_HANDLE)
@@ -458,7 +574,7 @@ static enum evdi_device_status evdi_device_to_platform(int device, char *path)
 	if (!device_exists(device))
 		return NOT_PRESENT;
 
-	fd_dir = opendir("/sys/devices/platform");
+	fd_dir = opendir("/sys/bus/platform/devices");
 	if (fd_dir == NULL) {
 		evdi_log("Failed to list platform devices");
 		return NOT_PRESENT;
@@ -469,7 +585,7 @@ static enum evdi_device_status evdi_device_to_platform(int device, char *path)
 			continue;
 
 		snprintf(path, PATH_MAX,
-			"/sys/devices/platform/%s", fd_entry->d_name);
+			"/sys/bus/platform/devices/%s", fd_entry->d_name);
 		snprintf(card_path, PATH_MAX, "%s/drm/card%d", path, device);
 		if (path_exists(card_path)) {
 			status = AVAILABLE;
@@ -490,28 +606,45 @@ enum evdi_device_status evdi_check_device(int device)
 
 int evdi_add_device(void)
 {
-	FILE *add_devices = fopen("/sys/devices/evdi/add", "w");
-	int written = 0;
+	return write_add_device("1", 1);
+}
 
-	if (add_devices != NULL) {
-		static const char devices_to_add[] = "1";
-		const size_t elem_bytes = 1;
+evdi_handle evdi_open_attached_to(const char *sysfs_parent_device)
+{
+	int device_index = EVDI_INVALID_DEVICE_INDEX;
 
-		written = fwrite(devices_to_add,
-				 elem_bytes,
-				 sizeof(devices_to_add),
-				 add_devices);
-		fclose(add_devices);
+	if (sysfs_parent_device == NULL)
+		device_index = get_generic_device();
+
+	if (sysfs_parent_device != NULL && strncmp(sysfs_parent_device, "usb:", 4) == 0 && strlen(sysfs_parent_device) > 4) {
+		char bus_ident[PATH_MAX];
+		const size_t len = strlen(sysfs_parent_device) - 4;
+
+		strncpy(bus_ident, &sysfs_parent_device[4], len);
+		bus_ident[len] = 0;
+		device_index = get_device_attached_to_usb(bus_ident);
 	}
 
-	return written;
+	if (device_index >= 0 && device_index < EVDI_USAGE_LEN)  {
+		evdi_handle handle = evdi_open(device_index);
+		return handle;
+	}
+
+	return EVDI_INVALID_HANDLE;
 }
+
 
 void evdi_close(evdi_handle handle)
 {
 	if (handle != EVDI_INVALID_HANDLE) {
 		close(handle->fd);
 		free(handle);
+		for (int device_index = 0; device_index < EVDI_USAGE_LEN; device_index++) {
+			if (card_usage[device_index] == handle) {
+				card_usage[device_index] = EVDI_INVALID_HANDLE;
+				evdi_log("Marking /dev/dri/card%d as unused", device_index);
+			}
+		}
 	}
 }
 
@@ -750,6 +883,7 @@ static struct evdi_ddcci_data to_evdi_ddcci_data(
 {
 	struct evdi_ddcci_data ddcci_data;
 
+	ddcci_data.address = event->address;
 	ddcci_data.flags = event->flags;
 	ddcci_data.buffer = &event->buffer[0];
 	ddcci_data.buffer_length = event->buffer_length;
